@@ -218,7 +218,7 @@ class DFA {
     }
     void convertFromNFA(NFA input) {
         auto NFATable=input.getFunctionTable();
-        set<int> startState=input.getStartState();
+        /*set<int> startState=input.getStartState();
         auto originalStatesCount=input.getStates().size();
         for (int i=0; i<originalStatesCount; i++) {
             states.push_back(set<int>{i});
@@ -234,40 +234,22 @@ class DFA {
             endIndex=states.size();
             states.push_back(input.getEndStates());
         }
-        end=endIndex;
+        end=endIndex;*/
         for (const auto &line: input.getFunctionTable()) {
-            DFAFunctionLine theLine{};
-            theLine.from=line.from;
-            set<int> zeroSet=line.toZero;
-            set<int> oneSet=line.toOne;
-            addTo(zeroSet, theLine.to0);
-            addTo(oneSet, theLine.to1);
-            functionTable.push_back(theLine);
-        }
-        for (int i=originalStatesCount; i<states.size(); i++) {
-            set<int> toZero;
-            set<int> toOne;
-            auto theState=states[i];
-            for (auto q: theState) {
-                auto index=functionTable[q].to0;
-                if (index!=-1) {
-                    auto toZeroSet=states[index];
-                    for (auto p: toZeroSet) {
-                        toZero.insert(p);
-                    }
-                }
-                index=functionTable[q].to1;
-                if (index!=-1) {
-                    auto toOneSet=states[index];
-                    for (auto p: toOneSet) {
-                        toOne.insert(p);
-                    }
-                }
+            auto fromState=line.from;
+            auto toZeroState=line.toZero;
+            auto toOneState=line.toOne;
+            auto fromIndex=insertState(set<int>{fromState});
+            for (auto q:toZeroState) {
+                insertState(set<int>{q});
             }
-            auto zeroIndex=insertState(toZero);
-            auto oneIndex=insertState(toOne);
-            DFAFunctionLine line{i, zeroIndex, oneIndex};
-            functionTable.push_back(line);
+            auto toZeroIndex=insertState(toZeroState);
+            for (auto q:toOneState) {
+                insertState(set<int>{q});
+            }
+            auto toOneIndex=insertState(toOneState);
+            DFAFunctionLine theLine{fromIndex,toZeroIndex,toOneIndex};
+            functionTable.push_back(theLine);
         }
     }
 public:
