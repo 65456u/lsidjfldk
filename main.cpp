@@ -6,6 +6,7 @@
 #include <cstring>
 #include <map>
 #include <queue>
+#include <algorithm>
 using namespace std;
 typedef enum {
     startState, endState, other
@@ -18,17 +19,6 @@ struct NFAFunctionLine {
         from=from_state;
         toZero=std::move(to0);
         toOne=std::move(to1);
-    }
-    void print() {
-        cout<<"from:"<<from<<endl;
-        cout<<"0:"<<endl;
-        for (auto q: toZero) {
-            cout<<q<<endl;
-        }
-        cout<<"1:"<<endl;
-        for (auto q: toOne) {
-            cout<<q<<endl;
-        }
     }
 };
 class NFA {
@@ -127,7 +117,6 @@ void NFAInput(istream &istream, NFA &nfa) {
         stringstream ss(buf);
         string from, zero, one;
         ss>>from>>zero>>one;
-        //cout<<"from:"<<from<<" zero:"<<zero<<" one:"<<one<<endl;
         int fromState;
         auto theType=fromInput(from, fromState);
         nfa.addState(fromState);
@@ -164,26 +153,9 @@ struct DFAFunctionLine {
 };
 class DFA {
     int start;
-    int end;
+    set<int> end;
     vector<set<int>> states;
     vector<DFAFunctionLine> functionTable;
-    void addTo(const set<int> &theSet, int &to) {
-        if (theSet.size()==1) {
-            for (auto q: theSet) {
-                to=q;
-            }
-        } else if (theSet.empty()) {
-            to=-1;
-        } else {
-            int index=stateFind(states, theSet);
-            if (index==-1) {
-                states.push_back(theSet);
-                to=states.size()-1;
-            } else {
-                to=index;
-            }
-        }
-    }
     int insertState(set<int> stateToInsert) {
         auto index=stateFind(states, stateToInsert);
         if (index==-1) {
@@ -192,129 +164,97 @@ class DFA {
         }
         return index;
     }
-    void deleteUnreachableStates() {
-        vector<bool> reachable(states.size(), false);
-        queue<int> q;
-        q.push(start);
-        reachable[start]=true;
-        while (!q.empty()) {
-            int cur=q.front();
-            q.pop();
-            if (functionTable[cur].to0!=-1 && !reachable[functionTable[cur].to0]) {
-                reachable[functionTable[cur].to0]=true;
-                q.push(functionTable[cur].to0);
-            }
-            if (functionTable[cur].to1!=-1 && !reachable[functionTable[cur].to1]) {
-                reachable[functionTable[cur].to1]=true;
-                q.push(functionTable[cur].to1);
-            }
-        }
-        for (auto &p: functionTable) {
-            int index=p.from;
-            if (!reachable[index]) {
-                p.reachable=false;
-            }
-        }
-    }
     void convertFromNFA(NFA input) {
-        auto NFATable=input.getFunctionTable();
-        set<int> startState=input.getStartState();
-        auto originalStatesCount=input.getStates().size();
-        for (int i=0; i<originalStatesCount; i++) {
-            states.push_back(set<int>{i});
+        queue<set<int>> statesBuffer;
+        for (auto q: input.getStates()) {
+            states.push_back(set<int>{q});
         }
-        int startIndex=stateFind(states, input.getStartState());
-        if (startIndex==-1) {
-            startIndex=states.size();
-            states.push_back(input.getStartState());
-        }
-        start=startIndex;
-        int endIndex=stateFind(states, input.getEndStates());
-        if (endIndex==-1) {
-            endIndex=states.size();
-            states.push_back(input.getEndStates());
-        }
-        end=endIndex;
-        for (const auto &line: input.getFunctionTable()) {
-            DFAFunctionLine theLine{};
-            theLine.from=line.from;
-            set<int> zeroSet=line.toZero;
-            set<int> oneSet=line.toOne;
-            addTo(zeroSet, theLine.to0);
-            addTo(oneSet, theLine.to1);
-            functionTable.push_back(theLine);
-        }
-        for (int i=originalStatesCount; i<states.size(); i++) {
-            set<int> toZero;
-            set<int> toOne;
-            auto theState=states[i];
-            for (auto q: theState) {
-                auto index=functionTable[q].to0;
-                if (index!=-1) {
-                    auto toZeroSet=states[index];
-                    for (auto p: toZeroSet) {
-                        toZero.insert(p);
-                    }
+        start=stateFind(states, input.getStartState());
+        statesBuffer.push(states[0]);
+        auto newFunctionTable=input.getFunctionTable();
+        set<int> reachedState;
+        while (!statesBuffer.empty()) {
+            auto fromState=statesBuffer.front();
+            statesBuffer.pop();
+            auto fromStateIndex=insertState(fromState);
+            if (reachedState.find(fromStateIndex)==reachedState.end()) {
+                reachedState.insert(fromStateIndex);
+                auto NFAFunctionTable=input.getFunctionTable();
+                set<int> toOnes, toZeros;
+                for (auto q: fromState) {
+                    auto relatedFunctionLine=NFAFunctionTable[q];
+                    auto NFAToOne=relatedFunctionLine.toOne;
+                    auto NFAToZero=relatedFunctionLine.toZero;
+                    toOnes.insert(NFAToOne.begin(), NFAToOne.end());
+                    toZeros.insert(NFAToZero.begin(), NFAToZero.end());
                 }
-                index=functionTable[q].to1;
-                if (index!=-1) {
-                    auto toOneSet=states[index];
-                    for (auto p: toOneSet) {
-                        toOne.insert(p);
-                    }
+                int toOneIndex=-1;
+                int toZeroIndex=-1;
+                if (!toZeros.empty()) {
+                    toZeroIndex=insertState(toZeros);
                 }
+                if (!toOnes.empty()) {
+                    toOneIndex=insertState(toOnes);
+                }
+                DFAFunctionLine theLine{fromStateIndex, toZeroIndex, toOneIndex};
+                functionTable.push_back(theLine);
+                statesBuffer.push(toZeros);
+                statesBuffer.push(toOnes);
             }
-            auto zeroIndex=insertState(toZero);
-            auto oneIndex=insertState(toOne);
-            DFAFunctionLine line{i, zeroIndex, oneIndex};
-            functionTable.push_back(line);
         }
+        auto NFAEndStates=input.getEndStates();
+        end.insert(NFAEndStates.begin(),NFAEndStates.end());
     }
 public:
     DFA(const NFA &input) {
         convertFromNFA(input);
-        deleteUnreachableStates();
     }
     void printTable() {
         cout<<"\t\t0\t1"<<endl;
         for (auto q: functionTable) {
-            if (q.reachable) {
-                if (q.from==start) {
-                    cout<<"(s)";
-                } else {
-                    bool isEnd=false;
-                    auto fromStates=states[q.from];
-                    for (auto p: fromStates) {
-                        if (p==end) {
-                            isEnd=true;
-                            break;
+            if (!(q.to1==-1&&q.to0==-1)) {
+                if (q.reachable) {
+                    if (q.from==start) {
+                        cout<<"(s)";
+                    } else {
+                        bool isEnd=false;
+                        auto fromStates=states[q.from];
+                        for (auto p: fromStates) {
+                            if (end.find(p)!=end.end()) {
+                                isEnd=true;
+                                break;
+                            }
+                        }
+                        if (isEnd) {
+                            cout<<"(e)";
                         }
                     }
-                    if (isEnd) {
-                        cout<<"(e)";
+                    cout<<'q'<<q.from;
+                    cout<<'\t';
+                    if (q.to0==-1) {
+                        cout<<'N';
+                    } else {
+                        cout<<'q'<<q.to0;
                     }
+                    cout<<'\t';
+                    if (q.to1==-1) {
+                        cout<<'N';
+                    } else {
+                        cout<<'q'<<q.to1;
+                    }
+                    cout<<endl;
                 }
-                cout<<'q'<<q.from;
-                cout<<'\t';
-                if (q.to0==-1) {
-                    cout<<'N';
-                } else {
-                    cout<<'q'<<q.to0;
-                }
-                cout<<'\t';
-                if (q.to1==-1) {
-                    cout<<'N';
-                } else {
-                    cout<<'q'<<q.to1;
-                }
-                cout<<endl;
             }
         }
+    }
+    void sort(){
+        std::sort(functionTable.begin(), functionTable.end(), [](DFAFunctionLine a,DFAFunctionLine b) {return a.from<b.from;});
     }
 };
 int main() {
     NFA input;
     NFAInput(cin, input);
     auto output=DFA(input);
+    output.sort();
     output.printTable();
 }
